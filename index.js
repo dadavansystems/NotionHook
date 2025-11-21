@@ -8,6 +8,9 @@ const {
   restEndpointMethods,
 } = require("@octokit/plugin-rest-endpoint-methods");
 
+const githubToken = core.getInput('github_token');
+const octokit = github.getOctokit(githubToken);
+
 async function createCommit(notion, commits) {
   let fileFormat = core.getInput("files_format");
   if (core.getInput("token") === "") fileFormat = "none";
@@ -152,15 +155,39 @@ async function createCommit(notion, commits) {
     });
   });
 }
-
+// modified code: Author: Bhavya Jain (Dadavan Systems)
 (async () => {
   try {
-    const notion = new Client({ auth: core.getInput("notion_secret") });
-    createCommit(notion, github.context.payload.commits);
+    const notion = new Client({ auth: core.getInput('notion_secret') });
+    const commits = github.context.payload.commits;
+
+    if (commits && commits.length > 0) {
+      // Normal branch push with multiple commits
+      await createCommit(notion, commits);
+    } else {
+      // Likely a tag event: process the tagged commit only
+      const commitSHA = github.context.payload.after || github.context.payload.ref; // 'after' often has commit SHA
+      // Fetch commit details using GitHub API
+      const octokit = github.getOctokit(core.getInput('github_token'));
+      const repo = github.context.repo;
+      const { data: commit } = await octokit.rest.repos.getCommit({
+        owner: repo.owner,
+        repo: repo.repo,
+        ref: commitSHA,
+      });
+
+      const singleCommit = {
+        id: commit.sha,
+        url: commit.html_url,
+        message: commit.commit.message,
+      };
+      await createCommit(notion, [singleCommit]);
+    }
   } catch (error) {
     core.setFailed(error.message);
   }
 })();
+
 
 async function getFiles() {
   try {
