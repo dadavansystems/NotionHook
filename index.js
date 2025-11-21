@@ -8,9 +8,6 @@ const {
   restEndpointMethods,
 } = require("@octokit/plugin-rest-endpoint-methods");
 
-const githubToken = core.getInput('token');
-const octokit = github.getOctokit(githubToken);
-
 async function createCommit(notion, commits) {
   let fileFormat = core.getInput("files_format");
   if (core.getInput("token") === "") fileFormat = "none";
@@ -168,7 +165,7 @@ async function createCommit(notion, commits) {
       // Likely a tag event: process the tagged commit only
       const commitSHA = github.context.payload.after || github.context.payload.ref; // 'after' often has commit SHA
       // Fetch commit details using GitHub API
-      const octokit = github.getOctokit(core.getInput('github_token'));
+      const octokit = github.getOctokit(core.getInput('token'));
       const repo = github.context.repo;
       const { data: commit } = await octokit.rest.repos.getCommit({
         owner: repo.owner,
