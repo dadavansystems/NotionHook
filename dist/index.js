@@ -13222,7 +13222,13 @@ async function createCommit(notion, commits) {
         },
         [core.getInput("commit_project")]: {
           multi_select: [{ name: github.context.repo.repo }]
-        }
+        },
+        ...(commit.tagName ? {
+        Tag: {
+          rich_text: [{ type: "text", text: { content: commit.tagName } }]
+        },
+        TagURL: { url: commit.tagUrl }
+      } : {})
       },
       children: filesBlock ? [filesBlock] : []
     });
@@ -13270,11 +13276,15 @@ async function handleTagPush(notion) {
     ref: commitSHA
   });
 
+  const tagUrl = `https://github.com/${owner}/${repository}/releases/tag/${tagName}`;
+
   const singleCommit = {
-    id: commit.sha,
-    url: commit.html_url,
-    message: commit.commit.message
-  };
+  id: commit.sha,
+  url: commit.html_url,
+  message: commit.commit.message,
+  tagName,
+  tagUrl
+};
 
   await createCommit(notion, [singleCommit]);
 }

@@ -18,6 +18,14 @@ inputs:
     description: "Name of Database column for commit url"
     required: true
     default: "Url"
+  tag_name:
+    description: "Database column for storing the tag name"
+    required: false
+    default: "Tag"
+  tag_url:
+    description: "Database column for storing the tag URL"
+    required: false
+    default: "TagURL"
   commit_id:
     description: "Name of the Database column for commit id"
     required: true
