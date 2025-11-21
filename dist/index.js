@@ -115,19 +115,41 @@ async function createCommit(notion, commits) {
       await createCommit(notion, [singleCommit]);
     } else {
       // Likely a tag event or no commits array: process tagged commit
-      const commitSHA = github.context.payload.after || github.context.sha;
       const octokit = github.getOctokit(core.getInput("token"));
       const repo = github.context.repo;
+      const tagRef = github.context.payload.ref; // e.g., "refs/tags/v1.0.0"
+      const tagName = tagRef.replace('refs/tags/', '');
+
+      // Get ref info of the tag
+      const { data: refData } = await octokit.git.getRef({
+        owner: repo.owner,
+        repo: repo.repo,
+        ref: `tags/${tagName}`,
+      });
+
+      let commitSHA;
+
+      if (refData.object.type === 'commit') {
+        commitSHA = refData.object.sha;
+      } else if (refData.object.type === 'tag') {
+        // Annotated tag, get the tagged object
+        const { data: tagData } = await octokit.git.getTag({
+          owner: repo.owner,
+          repo: repo.repo,
+          tag_sha: refData.object.sha,
+        });
+        commitSHA = tagData.object.sha;
+      } else {
+        throw new Error(`Unexpected tag object type: ${refData.object.type}`);
+      }
+
+      // Now fetch the commit details with resolved SHA
       const { data: commit } = await octokit.rest.repos.getCommit({
         owner: repo.owner,
         repo: repo.repo,
         ref: commitSHA,
       });
-      const singleCommit = {
-        id: commit.sha,
-        url: commit.html_url,
-        message: commit.commit.message,
-      };
+
       await createCommit(notion, [singleCommit]);
     }
   } catch (error) {
