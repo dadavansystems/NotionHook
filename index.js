@@ -94,13 +94,16 @@ async function createCommit(notion, commits) {
  * Handle tag push events (refs/tags/vX.Y.Z)
  */
 async function handleTagPush(notion) {
-  const octokit = github.getOctokit(core.getInput("token"));
-  const repo = github.context.repo;
+  const MyOctokit = Octokit.plugin(restEndpointMethods);
+  const octokit = new MyOctokit({
+    auth: core.getInput("token")
+  });
 
+  const repo = github.context.repo;
   const tagRef = github.context.payload.ref; // refs/tags/v1.0.0
   const tagName = tagRef.replace("refs/tags/", "");
 
-  // Get tag reference
+  // Fetch reference
   const { data: refData } = await octokit.git.getRef({
     owner: repo.owner,
     repo: repo.repo,
@@ -110,16 +113,15 @@ async function handleTagPush(notion) {
   let commitSHA;
 
   if (refData.object.type === "commit") {
-    // Lightweight tag
-    commitSHA = refData.object.sha;
+    commitSHA = refData.object.sha; // lightweight tag
   } else if (refData.object.type === "tag") {
-    // Annotated tag -> need to resolve to final commit
     const { data: tagObj } = await octokit.git.getTag({
       owner: repo.owner,
       repo: repo.repo,
       tag_sha: refData.object.sha,
     });
-    commitSHA = tagObj.object.sha;
+
+    commitSHA = tagObj.object.sha; // annotated tag → underlying commit
   } else {
     throw new Error(`Unexpected tag object type: ${refData.object.type}`);
   }
@@ -173,7 +175,9 @@ async function handleTagPush(notion) {
     // 3️⃣ FIRST PUSH TO BRANCH (no base)
     // --------------------------------------------
     if (base === "0000000000000000000000000000000000000000") {
-      const octokit = github.getOctokit(core.getInput("token"));
+      const MyOctokit = Octokit.plugin(restEndpointMethods);
+      const octokit = new MyOctokit({ auth: core.getInput("token") });
+
       const repo = github.context.repo;
 
       const { data: commit } = await octokit.rest.repos.getCommit({
