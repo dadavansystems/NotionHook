@@ -150,6 +150,12 @@ async function createCommit(notion, commits) {
         ref: commitSHA,
       });
 
+      const singleCommit = {
+        id: commit.sha,
+        url: commit.html_url,
+        message: commit.commit.message,
+      };
+
       await createCommit(notion, [singleCommit]);
     }
   } catch (error) {
