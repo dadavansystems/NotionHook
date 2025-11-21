@@ -8,7 +8,7 @@ const {
   restEndpointMethods,
 } = require("@octokit/plugin-rest-endpoint-methods");
 
-const githubToken = core.getInput('github_token');
+const githubToken = core.getInput('token');
 const octokit = github.getOctokit(githubToken);
 
 async function createCommit(notion, commits) {
