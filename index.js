@@ -1,18 +1,14 @@
 const core = require("@actions/core");
 const github = require("@actions/github");
-const { GitHub } = require("@actions/github/lib/utils");
 const { Client } = require("@notionhq/client");
-const { createTokenAuth } = require("@octokit/auth-token");
 const { Octokit } = require("@octokit/core");
-const {
-  restEndpointMethods,
-} = require("@octokit/plugin-rest-endpoint-methods");
+const { restEndpointMethods } = require("@octokit/plugin-rest-endpoint-methods");
 
 async function createCommit(notion, commits) {
   let fileFormat = core.getInput("files_format");
   if (core.getInput("token") === "") fileFormat = "none";
   var files = await getFiles();
-  commits.forEach((commit) => {
+  for (const commit of commits) {
     const array = commit.message.split(/\r?\n/);
     const title = array.shift();
     let description = "";
@@ -20,12 +16,29 @@ async function createCommit(notion, commits) {
       description += " " + element;
     });
 
-    const task = commit.message.substring(commit.message.indexOf("atnt:") + 6);
+    // Optional: your task extraction and Notion search code
+    const taskIndex = commit.message.indexOf("atnt:");
+    let task = "";
+    if (taskIndex >= 0) {
+      task = commit.message.substring(taskIndex + 5).trim();
+    }
 
-    // search for a page in the Notion database "Tasks" given the task name
-    const page = notion.pages.filter(
-      (page) => page.properties.title === task
-    )[0];
+    // This line assumes you implement page search differently; be sure notion.pages.filter is valid or replace
+    let page = null;
+    try {
+      const searchResp = await notion.databases.query({
+        database_id: core.getInput("task_database_id"),
+        filter: {
+          property: "Name", // Change to your task title property exact name
+          title: {
+            equals: task,
+          },
+        },
+      });
+      page = searchResp.results[0];
+    } catch (error) {
+      core.info("Task search error: " + error.message);
+    }
 
     let filesBlock;
     switch (fileFormat) {
@@ -36,143 +49,80 @@ async function createCommit(notion, commits) {
           object: "block",
           type: "toggle",
           toggle: {
-            text: [
-              {
-                type: "text",
-                text: {
-                  content: "Files",
-                  link: null,
-                },
-                annotations: {
-                  bold: true,
-                  italic: false,
-                  strikethrough: false,
-                  underline: false,
-                  code: false,
-                  color: "default",
-                },
-              },
-            ],
+            text: [{ type: "text", text: { content: "Files" }, annotations: { bold: true } }],
             children: [
               {
                 type: "paragraph",
                 paragraph: {
-                  text: [
-                    {
-                      type: "text",
-                      text: {
-                        content: files,
-                      },
-                    },
-                  ],
+                  text: [{ type: "text", text: { content: files } }],
                 },
               },
             ],
           },
         };
-
         break;
       case "none":
         core.info("No file will be listed");
+        filesBlock = null;
         break;
-
       default:
-        core.setFailed(
-          "Other files list tipes not supported or file type not specified."
-        );
-        break;
+        core.setFailed("Other files list types not supported or file type not specified.");
+        return;
     }
 
-    notion.pages.create({
-      parent: {
-        database_id: core.getInput("notion_database"),
-      },
+    // Await notion.pages.create to ensure it finishes before proceeding
+    await notion.pages.create({
+      parent: { database_id: core.getInput("notion_database") },
       properties: {
         title: {
-          title: [
-            {
-              type: "text",
-              text: {
-                content: title,
-              },
-            },
-          ],
+          title: [{ type: "text", text: { content: title } }],
         },
-        task: {
-          relation: [{ id: page.id }],
-        },
-        [core.getInput("commit_url")]: {
-          url: commit.url,
-        },
-        [core.getInput("commit_id")]: {
-          rich_text: [
-            {
-              type: "text",
-              text: {
-                content: commit.id,
-              },
-            },
-          ],
-        },
-        [core.getInput("commit_description")]: {
-          rich_text: [
-            {
-              type: "text",
-              text: {
-                content: description,
-              },
-            },
-          ],
-        },
-        [core.getInput("commit_project")]: {
-          multi_select: [
-            {
-              name: github.context.repo.repo,
-            },
-          ],
-        },
+        ...(page ? { task: { relation: [{ id: page.id }] } } : {}),
+        [core.getInput("commit_url")]: { url: commit.url },
+        [core.getInput("commit_id")]: { rich_text: [{ type: "text", text: { content: commit.id } }] },
+        [core.getInput("commit_description")]: { rich_text: [{ type: "text", text: { content: description } }] },
+        [core.getInput("commit_project")]: { multi_select: [{ name: github.context.repo.repo }] },
       },
-      children: [
-        {
-          object: "block",
-          type: "paragraph",
-          paragraph: {
-            text: [
-              {
-                type: "text",
-                text: {
-                  content: description,
-                },
-              },
-            ],
-          },
-        },
-        filesBlock,
-      ],
+      children: filesBlock ? [filesBlock] : [],
     });
-  });
+  }
 }
-// modified code: Author: Bhavya Jain (Dadavan Systems)
+
 (async () => {
   try {
-    const notion = new Client({ auth: core.getInput('notion_secret') });
+    const notion = new Client({ auth: core.getInput("notion_secret") });
     const commits = github.context.payload.commits;
+    const base = github.context.payload.before;
+    const head = github.context.payload.after;
 
     if (commits && commits.length > 0) {
       // Normal branch push with multiple commits
       await createCommit(notion, commits);
+    } else if (base === "0000000000000000000000000000000000000000") {
+      // First push (no valid base commit)
+      const octokit = github.getOctokit(core.getInput("token"));
+      const repo = github.context.repo;
+      const { data: commit } = await octokit.rest.repos.getCommit({
+        owner: repo.owner,
+        repo: repo.repo,
+        ref: head,
+      });
+      const singleCommit = {
+        id: commit.sha,
+        url: commit.html_url,
+        message: commit.commit.message,
+      };
+      await createCommit(notion, [singleCommit]);
     } else {
-      // Likely a tag event: process the tagged commit only
-      const commitSHA = github.context.payload.after || github.context.payload.ref; // 'after' often has commit SHA
-      // Fetch commit details using GitHub API
-      const octokit = github.getOctokit(core.getInput('token'));
+      // Likely a tag event or no commits array: process tagged commit
+      const commitSHA = github.context.payload.after || github.context.sha;
+      const octokit = github.getOctokit(core.getInput("token"));
       const repo = github.context.repo;
       const { data: commit } = await octokit.rest.repos.getCommit({
         owner: repo.owner,
         repo: repo.repo,
         ref: commitSHA,
       });
-
       const singleCommit = {
         id: commit.sha,
         url: commit.html_url,
@@ -185,7 +135,6 @@ async function createCommit(notion, commits) {
   }
 })();
 
-
 async function getFiles() {
   try {
     const MyOctokit = Octokit.plugin(restEndpointMethods);
@@ -194,12 +143,14 @@ async function getFiles() {
     });
     const format = core.getInput("files_format", { required: true });
 
-    if (format !== "text-list") {
+    if (format !== "text-list" && format !== "none") {
       core.setFailed("file output format not supported.");
+      return "";
     }
     core.debug(`Payload keys: ${Object.keys(github.context.payload)}`);
     const eventName = github.context.eventName;
 
+    let base, head;
     switch (eventName) {
       case "pull_request":
         base = github.context.payload.pull_request.base.sha;
@@ -210,31 +161,24 @@ async function getFiles() {
         head = github.context.payload.after;
         break;
       default:
-        core.setFailed(
-          `This action only supports pull requests and pushes, ${github.context.eventName} events are not supported. ` +
-            "Please submit an issue on this action's GitHub repo if you believe this in correct."
-        );
+        core.setFailed(`This action only supports pull requests and pushes, ${eventName} events are not supported.`);
+        return "";
     }
 
     core.info(`Base commit: ${base}`);
     core.info(`Head commit: ${head}`);
 
     if (!base || !head) {
-      core.setFailed(
-        `The base and head commits are missing from the payload for this ${github.context.eventName} event. ` +
-          "Please submit an issue on this action's GitHub repo."
-      );
-
-      base = "";
-      head = "";
+      core.setFailed(`The base and head commits are missing from the payload for this ${eventName} event.`);
+      return "";
     }
 
-    if (base === '0000000000000000000000000000000000000000') {
-      core.info('First push detected, no base commit to compare.');
-      return ''; // or return early, handle single commit case separately
+    if (base === "0000000000000000000000000000000000000000") {
+      core.info("First push detected, no base commit to compare.");
+      return "";
     }
-    
-    const response = await octokit.repos.compareCommits({
+
+    const response = await octokit.rest.repos.compareCommits({
       base,
       head,
       owner: github.context.repo.owner,
@@ -243,16 +187,14 @@ async function getFiles() {
 
     if (response.status !== 200) {
       core.setFailed(
-        `The GitHub API for comparing the base and head commits for this ${github.context.eventName} event returned ${response.status}, expected 200. ` +
-          "Please submit an issue on this action's GitHub repo."
+        `The GitHub API for comparing the base and head commits for this ${eventName} event returned ${response.status}, expected 200.`
       );
+      return "";
     }
 
     if (response.data.status !== "ahead") {
-      core.setFailed(
-        `The head commit for this ${github.context.eventName} event is not ahead of the base commit. ` +
-          "Please submit an issue on this action's GitHub repo."
-      );
+      core.setFailed(`The head commit for this ${eventName} event is not ahead of the base commit.`);
+      return "";
     }
 
     const files = response.data.files;
@@ -266,8 +208,7 @@ async function getFiles() {
       const filename = file.filename;
       if (format === "text-list" && filename.includes(" ")) {
         core.setFailed(
-          `One of your files includes a space. Consider using a different output format or removing spaces from your filenames. ` +
-            "Please submit an issue on this action's GitHub repo."
+          "One of your files includes a space. Consider using a different output format or removing spaces from your filenames."
         );
       }
       all.push(filename);
@@ -287,66 +228,22 @@ async function getFiles() {
           renamed.push(filename);
           break;
         default:
-          core.setFailed(
-            `One of your files includes an unsupported file status '${file.status}', expected 'added', 'modified', 'removed', or 'renamed'.`
-          );
+          core.setFailed(`Unsupported file status '${file.status}'`);
       }
     }
 
-    let allFormatted,
-      addedFormatted,
-      modifiedFormatted,
-      removedFormatted,
-      renamedFormatted,
-      addedModifiedFormatted;
     switch (format) {
       case "text-list":
-        for (const file of all) {
-          if (file.includes(" "))
-            core.setFailed(
-              `One of your files includes a space. Consider using a different output format or removing spaces from your filenames.`
-            );
-        }
-        allFormatted = all.join(" ");
-        addedFormatted = added.join(" ");
-        modifiedFormatted = modified.join(" ");
-        removedFormatted = removed.join(" ");
-        renamedFormatted = renamed.join(" ");
-        addedModifiedFormatted = addedModified.join(" ");
-        break;
+        return all.join(" ");
       case "csv":
-        allFormatted = all.join(",");
-        addedFormatted = added.join(",");
-        modifiedFormatted = modified.join(",");
-        removedFormatted = removed.join(",");
-        renamedFormatted = renamed.join(",");
-        addedModifiedFormatted = addedModified.join(",");
-        break;
+        return all.join(",");
       case "json":
-        allFormatted = JSON.stringify(all);
-        addedFormatted = JSON.stringify(added);
-        modifiedFormatted = JSON.stringify(modified);
-        removedFormatted = JSON.stringify(removed);
-        renamedFormatted = JSON.stringify(renamed);
-        addedModifiedFormatted = JSON.stringify(addedModified);
-        break;
+        return JSON.stringify(all);
+      case "none":
+        return "";
     }
-
-    // Log the output values.s
-    // core.info(`All: ${allFormatted}`);
-    // core.info(`Added: ${addedFormatted}`);
-    // core.info(`Modified: ${modifiedFormatted}`);
-    // core.info(`Removed: ${removedFormatted}`);
-    // core.info(`Renamed: ${renamedFormatted}`);
-    // core.info(`Added or modified: ${addedModifiedFormatted}`);
-
-    let outPutMessage =
-      (addedFormatted != "" ? "Added: \n" + addedFormatted : "") +
-      (modifiedFormatted != "" ? "Modified \n" + modifiedFormatted : "") +
-      (removedFormatted != "" ? "Removed: \n" + removedFormatted : "") +
-      (renamedFormatted != "" ? "Renamed: \n" + renamedFormatted : "");
-    return outPutMessage;
   } catch (error) {
     core.info("error " + error + " occurred");
+    return "";
   }
 }
