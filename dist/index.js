@@ -13276,7 +13276,7 @@ async function handleTagPush(notion) {
     ref: commitSHA
   });
 
-  const tagUrl = `https://github.com/${owner}/${repository}/releases/tag/${tagName}`;
+  const tagUrl = `https://github.com/${repo.owner}/${repo.repo}/releases/tag/${tagName}`;
 
   const singleCommit = {
   id: commit.sha,
