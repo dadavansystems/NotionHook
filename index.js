@@ -2,13 +2,10 @@ const core = require("@actions/core");
 const github = require("@actions/github");
 const { Client } = require("@notionhq/client");
 
-const { Octokit } = require("@octokit/core");
-const { restEndpointMethods } = require("@octokit/plugin-rest-endpoint-methods");
+const { Octokit } = require("@octokit/rest");
 
-// 🔥 We use ONE octokit instance everywhere
 function getOctokit() {
-  const MyOctokit = Octokit.plugin(restEndpointMethods);
-  return new MyOctokit({ auth: core.getInput("token") });
+  return new Octokit({ auth: core.getInput("token") });
 }
 
 async function createCommit(notion, commits) {
