@@ -229,6 +229,11 @@ async function getFiles() {
       head = "";
     }
 
+    if (base === '0000000000000000000000000000000000000000') {
+      core.info('First push detected, no base commit to compare.');
+      return ''; // or return early, handle single commit case separately
+    }
+    
     const response = await octokit.repos.compareCommits({
       base,
       head,
