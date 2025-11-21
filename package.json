@@ -29,5 +29,8 @@
     "@octokit/auth-token": "^2.5.0",
     "@octokit/core": "^3.5.1",
     "@octokit/plugin-rest-endpoint-methods": "^2.4.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.4"
   }
 }
