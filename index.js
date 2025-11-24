@@ -149,7 +149,7 @@ async function createCommit(notion, commits) {
       await notion.pages.update({
         page_id: clientPageId,
         properties: {
-          current_version: {
+          "Current Version": {
             rich_text: [
               { type: "text", text: { content: version } }
             ]
