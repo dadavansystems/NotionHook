@@ -14,11 +14,23 @@ async function createCommit(notion, commits) {
 
   const files = await getFiles();
 
+  // Inputs for dynamic column names
+  const tagNameField = core.getInput("tag_name") || "Tag";
+  const tagUrlField = core.getInput("tag_url") || "TagURL";
+
   for (const commit of commits) {
     const array = commit.message.split(/\r?\n/);
     const title = array.shift();
     const description = array.join(" ");
 
+    // Extract from tag: v1.1.1_sdta
+    const tagParts = commit.tagName ? commit.tagName.split("_") : [];
+    const version = tagParts[0] || "";
+    const clientShortname = tagParts[1] || "";
+
+    const repoName = github.context.repo.repo;
+
+    // --- Task Lookup (unchanged) ---
     const taskIndex = commit.message.indexOf("atnt:");
     let task = "";
     if (taskIndex >= 0) task = commit.message.substring(taskIndex + 5).trim();
@@ -32,14 +44,13 @@ async function createCommit(notion, commits) {
           title: { equals: task }
         }
       });
-
       page = searchResp.results[0];
     } catch (err) {
       core.info("Task lookup failed: " + err.message);
     }
 
+    // --- Build Files Block ---
     let filesBlock = null;
-
     if (fileFormat === "text-list") {
       filesBlock = {
         object: "block",
@@ -64,32 +75,88 @@ async function createCommit(notion, commits) {
       };
     }
 
+    // --- Find Software & Client Pages ---
+    const softwarePageId = await findPageByProp(
+      notion,
+      core.getInput("software_database_id"),
+      "Repository Name",
+      repoName,
+      "rich_text"
+    );
+
+    const clientPageId = await findPageByProp(
+      notion,
+      core.getInput("client_database_id"),
+      "Short Name",
+      clientShortname,
+      "rich_text"
+    );
+
+    // Build relation fields
+    let relations = {};
+    if (softwarePageId) {
+      relations.Software = { relation: [{ id: softwarePageId }] };
+    }
+    if (clientPageId) {
+      relations.Client = { relation: [{ id: clientPageId }] };
+    }
+
+    // --- Create Notion Commit Page ---
     await notion.pages.create({
       parent: { database_id: core.getInput("notion_database") },
       properties: {
         title: {
           title: [{ type: "text", text: { content: title } }]
         },
+
+        // Task relation
         ...(page ? { task: { relation: [{ id: page.id }] } } : {}),
+
+        // Software & Client relations
+        ...relations,
+
         [core.getInput("commit_url")]: { url: commit.url },
+
         [core.getInput("commit_id")]: {
           rich_text: [{ type: "text", text: { content: commit.id } }]
         },
+
         [core.getInput("commit_description")]: {
           rich_text: [{ type: "text", text: { content: description } }]
         },
+
         [core.getInput("commit_project")]: {
-          multi_select: [{ name: github.context.repo.repo }]
+          multi_select: [{ name: repoName }]
         },
+
+        // Tag fields
         ...(commit.tagName ? {
-        Tag: {
-          rich_text: [{ type: "text", text: { content: commit.tagName } }]
-        },
-        TagURL: { url: commit.tagUrl }
-      } : {})
+          [tagNameField]: {
+            rich_text: [
+              { type: "text", text: { content: commit.tagName } }
+            ]
+          },
+          [tagUrlField]: {
+            url: commit.tagUrl
+          }
+        } : {})
       },
       children: filesBlock ? [filesBlock] : []
     });
+
+    // --- Update Client Current Version ---
+    if (clientPageId && version) {
+      await notion.pages.update({
+        page_id: clientPageId,
+        properties: {
+          current_version: {
+            rich_text: [
+              { type: "text", text: { content: version } }
+            ]
+          }
+        }
+      });
+    }
   }
 }
 
@@ -194,6 +261,19 @@ async function handleTagPush(notion) {
     core.setFailed(err.message);
   }
 })();
+
+// Get Notion page ID by property value
+async function findPageByProp(notion, dbId, prop, value, type = "rich_text") {
+  const resp = await notion.databases.query({
+    database_id: dbId,
+    filter: {
+      property: prop,
+      [type]: { equals: value }
+    }
+  });
+  return resp.results[0] ? resp.results[0].id : null;
+}
+
 
 async function getFiles() {
   try {
