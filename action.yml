@@ -34,6 +34,12 @@ inputs:
     description: "MultiSelect field for the project name: please pre-fill it in Notion first!"
     required: true
     default: "Project"
+  software_database_id:
+    description: "The Notion database ID for software"
+    required: false
+  client_database_id:
+    description: "The Notion database ID for clients"
+    required: false
   files_format:
     description: "Which Format you would like to get your list of files"
     default: "text-list"
