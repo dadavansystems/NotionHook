@@ -84,13 +84,17 @@ async function createCommit(notion, commits) {
       "rich_text"
     );
 
-    const clientPageId = await findPageByProp(
-      notion,
-      core.getInput("client_database_id"),
-      "Short Name",
-      clientShortname,
-      "rich_text"
-    );
+    let clientPageId = null;
+
+    if (clientShortname) {
+      clientPageId = await findPageByProp(
+        notion,
+        core.getInput("client_database_id"),
+        "Short Name",
+        clientShortname,
+        "rich_text"
+      );
+    }
 
     // Build relation fields
     let relations = {};
