@@ -151,7 +151,7 @@ async function createCommit(notion, commits) {
         },
 
         [core.getInput("commit_repository")]: {
-          multi_select: [{ name: repoName }]
+          rich_text: [{ type: "text", text: { content: repoName } }]
         },
 
         // Tag fields
