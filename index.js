@@ -23,10 +23,11 @@ async function createCommit(notion, commits) {
     const title = array.shift();
     const description = array.join(" ");
 
-    // Extract from tag: v1.1.1_sdta
+    // Extract from tag: v1.1.1_sdta_PROJ-2512111255
     const tagParts = commit.tagName ? commit.tagName.split("_") : [];
     const version = tagParts[0] || "";
     const clientShortname = tagParts[1] || "";
+    const projectID = tagParts[2] || "";
 
     const repoName = github.context.repo.repo;
 
@@ -76,13 +77,18 @@ async function createCommit(notion, commits) {
     }
 
     // --- Find Software & Client Pages ---
-    const softwarePageId = await findPageByProp(
-      notion,
-      core.getInput("software_database_id"),
-      "Repository Name",
-      repoName,
-      "rich_text"
-    );
+
+    let softwarePageId = null;
+
+    if(repoName){
+      softwarePageId = await findPageByProp(
+        notion,
+        core.getInput("software_database_id"),
+        "Repository Name",
+        repoName,
+        "rich_text"
+      );
+    }
 
     let clientPageId = null;
 
@@ -96,6 +102,18 @@ async function createCommit(notion, commits) {
       );
     }
 
+    let projectPageId = null;
+
+    if(projectID){
+      projectPageId = await findPageByProp(
+        notion,
+        core.getInput("project_database_id"),
+        "Project ID Mirror",
+        projectID,
+        "rich_text"
+      );
+    }
+
     // Build relation fields
     let relations = {};
     if (softwarePageId) {
@@ -103,6 +121,9 @@ async function createCommit(notion, commits) {
     }
     if (clientPageId) {
       relations.Client = { relation: [{ id: clientPageId }] };
+    }
+    if (projectPageId) {
+      relations.Project = { relation: [{ id: projectPageId }] };
     }
 
     // --- Create Notion Commit Page ---
@@ -116,7 +137,7 @@ async function createCommit(notion, commits) {
         // Task relation
         ...(page ? { task: { relation: [{ id: page.id }] } } : {}),
 
-        // Software & Client relations
+        // Software, Client & Project relations
         ...relations,
 
         [core.getInput("commit_url")]: { url: commit.url },
@@ -129,7 +150,7 @@ async function createCommit(notion, commits) {
           rich_text: [{ type: "text", text: { content: description } }]
         },
 
-        [core.getInput("commit_project")]: {
+        [core.getInput("commit_repository")]: {
           multi_select: [{ name: repoName }]
         },
 
